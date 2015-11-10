@@ -73,6 +73,7 @@ joint_types = [
     "Rod",
     "Spherical hinge",
     "Total joint",
+    "Total pin joint",
     "Viscous body"]
 output_types = [
     "Stream animation",

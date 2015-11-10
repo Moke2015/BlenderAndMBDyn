@@ -472,29 +472,13 @@ class Rod(Joint):
         f.write("\tjoint: " + self.safe_name() + ", rod")
         for i in range(2):
             self.write_node(f, i, node=True, position=True, p_label="position")
-        if self.length is not None:
-            f.write(",\n\t\t" + BPY.FORMAT(self.length))
-        else:
-            f.write(",\n\t\tfrom nodes")
-        f.write(",\n\t\treference, " + self.constitutive.safe_name() + ";\n")
+        f.write(",\n\t\tfrom nodes,\n\t\treference, " + self.constitutive.safe_name() + ";\n")
 
 class RodOperator(Constitutive):
     bl_label = "Rod"
-    length = bpy.props.PointerProperty(type = BPY.Float)
     def prereqs(self, context):
         self.constitutive.mandatory = True
         self.constitutive.dimension = "1D"
-    def assign(self, context):
-        self.length.assign(self.entity.length)
-        super().assign(context)
-    def store(self, context):
-        self.entity.length = self.length.store()
-        super().store(context)
-    def draw(self, context):
-        super().draw(context)
-        self.length.draw(self.layout, text="Length")
-    def check(self, context):
-        return self.length.check(context) or super().check(context)
     def create_entity(self):
         return Rod(self.name)
 
@@ -517,6 +501,7 @@ klasses[SphericalHingeOperator.bl_label] = SphericalHingeOperator
 class TotalJoint(Joint):
     labels = "Fx Fy Fz Mx My Mz FX FY FZ MX MY MZ dx dy dz dAx dAy dAz u v w dAx_dor dAy_dot dAz_dot".split()
     def write(self, f):
+        # print("\nI write now the total joint")
         rot_0, globalV_0, Node_0 = self.rigid_offset(0)
         localV_0 = rot_0*globalV_0
         rot_1, globalV_1, Node_1 = self.rigid_offset(1)
@@ -605,6 +590,92 @@ class TotalJointOperator(Base):
         return TotalJoint(self.name)
 
 klasses[TotalJointOperator.bl_label] = TotalJointOperator
+
+class TotalPinJoint(Joint):
+    labels = "Fx Fy Fz Mx My Mz FX FY FZ MX MY MZ dx dy dz dAx dAy dAz u v w dAx_dor dAy_dot dAz_dot".split()
+    def write(self, f):
+        rot_0, globalV_0, Node_0 = self.rigid_offset(0)
+        localV_0 = rot_0*globalV_0
+        globalPosVec = self.objects[0].matrix_world.translation
+        rot = self.objects[0].matrix_world.to_quaternion().to_matrix()
+        rot_position = rot
+        f.write("\tjoint: " + self.safe_name() + ", total pin joint")
+        # if self.first == "rotate":
+        f.write(",\n\t\t" + safe_name(Node_0.name) + ", position")
+        write_vector(f, localV_0)
+        f.write(",\n\t\t\tposition orientation")
+        write_orientation(f, rot_0*rot_position, "\t\t\t")
+        f.write(",\n\t\t\trotation orientation")
+        write_orientation(f, rot_0*rot, "\t\t\t")
+        f.write(",\n\t\t\tposition")
+        write_vector(f, globalPosVec)
+        f.write(",\n\t\t\tposition orientation")
+        write_orientation(f, rot_0*rot_position, "\t\t\t")
+        f.write(",\n\t\t\trotation orientation")
+        write_orientation(f, rot_0*rot, "\t\t\t")
+
+        f.write(",\n\t\t\tposition constraint")
+        for d in self.drives[:3]: 
+            if d:
+                f.write(", active")
+            else:
+                f.write(", inactive")
+        f.write(", component")
+        for d in self.drives[:3]:
+            if d:
+                f.write(",\n\t\t\treference, " + d.safe_name())
+            else:
+                f.write(",\n\t\t\t\tinactive")
+        f.write(",\n\t\t\torientation constraint")
+        for d in self.drives[3:6]: 
+            if d:
+                f.write(", active")
+            else:
+                f.write(", inactive")
+        f.write(", component")
+        for d in self.drives[3:6]:
+            if d:
+                f.write(",\n\t\treference, " + d.safe_name())
+            else:
+                f.write(",\n\t\t\t\tinactive")
+        f.write(";\n")
+    def remesh(self):
+        Sphere(self.objects[0])
+
+class TotalPinJointOperator(Base):
+    bl_label = "Total pin joint"
+    # first = bpy.props.EnumProperty(items=[("displace", "Displacement", ""), ("rotate", "Angular Displacement", "")], default="displace")
+    drives = bpy.props.CollectionProperty(type = BPY.Drive)
+    intPosB = bpy.props.IntProperty();
+    rotOri = bpy.props.FloatVectorProperty()
+    N_objects = 1
+    def prereqs(self, context):
+        for i in range(6):
+            self.drives.add()
+        self.titles = list()
+        for t1 in ["Displacement-", "Angular Displacement-"]:
+            for t2 in "XYZ":
+                self.titles.append(t1 + t2)
+    def assign(self, context):
+        for i, d in enumerate(self.entity.drives):
+            self.drives[i].assign(d)
+    def store(self, context):
+        self.entity.drives = [d.store() for d in self.drives]
+        self.entity.objects = self.sufficient_objects(context)
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row(align=True)
+        layout.label("Drivers")
+        # layout.prop(self, "first", text="Driven first")
+        for d, t in zip(self.drives, self.titles):
+            d.draw(layout, text = t)
+    def check(self, context):
+        return True in [d.check(context) for d in self.drives]
+    def create_entity(self):
+        print("\nI create the total pin joint now")
+        return TotalPinJoint(self.name)
+
+klasses[TotalPinJointOperator.bl_label] = TotalPinJointOperator
 
 class ViscousBody(Joint):
     def write(self, f):
@@ -1068,8 +1139,14 @@ klasses[DrivenOperator.bl_label] = DrivenOperator
 
 class Plot:
     bl_options = {'REGISTER', 'INTERNAL'}
+    prereqs_met = bpy.props.BoolProperty(default=False)
     label_names = bpy.props.CollectionProperty(type=BPY.Str)
     def load(self, context, exts, pd):
+        if not self.prereqs_met:
+            for prereq in "pandas matplotlib.pyplot".split():
+                if subprocess.call(("python", "-c", "import " + prereq)):
+                    raise ImportError("No module named " + prereq)
+            self.prereqs_met = True
         self.base = os.path.join(os.path.splitext(context.blend_data.filepath)[0], context.scene.name)
         if 'frequency' not in BPY.plot_data:
             with open(".".join((self.base, "log")), 'r') as f:
@@ -1099,7 +1176,7 @@ class Plot:
                 f.write(self.entity.name + "\n")
                 dataframe.to_csv(f)
                 f.seek(0)
-                subprocess.Popen(("python3", plot_script), stdin=f)
+                subprocess.Popen(("python", plot_script), stdin=f)
         elif self.label_names:
             self.report({'ERROR'}, "None selected.")
         return{'FINISHED'}

@@ -231,6 +231,7 @@ joint = Tree([
     ("Rod", 2),
     ("Spherical hinge", 2),
     ("Total joint", 2),
+    ("Total pin joint", 1),
     ("Viscous body", 1)])
 
 output = Tree([
